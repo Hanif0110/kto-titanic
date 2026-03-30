@@ -1,10 +1,12 @@
 import logging
 from pathlib import Path
+import tempfile
 
+import mlflow
 import pandas as pd
 import sklearn.model_selection
 
-# TODO : Dans une second temps, récupérer le client mlflow nous permettant de télécharger les artifacts enregistrés à l'étape précédente
+client = mlflow.MlflowClient()
 
 FEATURES = ["Pclass", "Sex", "SibSp", "Parch"]
 TARGET = "Survived"
@@ -13,7 +15,10 @@ TARGET = "Survived"
 def split_train_test(data_path: str) -> tuple[str, str, str, str]:
     logging.warning(f"split on {data_path}")
 
-    df = pd.read_csv(data_path, index_col=False)
+    df = pd.read_csv(
+        client.download_artifacts(run_id=mlflow.active_run().info.run_id, path=data_path),
+        index_col=False,
+    )
 
     y = df[TARGET]
     x = df[FEATURES]
@@ -29,11 +34,11 @@ def split_train_test(data_path: str) -> tuple[str, str, str, str]:
     ]
 
     artifact_paths = []
-    for data, artifact_path, filename in datasets:
-        file_path = Path("./dist/", filename)
-        data.to_csv(file_path, index=False)
-        artifact_paths.append(file_path)
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        for data, artifact_path, filename in datasets:
+            file_path = Path(tmp_dir, filename)
+            data.to_csv(file_path, index=False)
+            mlflow.log_artifact(str(file_path), artifact_path)
+            artifact_paths.append(f"{artifact_path}/{filename}")
 
     return tuple(artifact_paths)
-    # TODO : Dans un second temps, télécharger les artifacts depuis mlflow
-    # TODO : Dans un second temps, ajouter les logs mlflow pour enregistrer les artifacts utiles pour la suite
