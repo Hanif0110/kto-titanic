@@ -1,46 +1,33 @@
-from unittest.mock import patch, Mock
+from unittest.mock import Mock, patch
+import os
+
 import numpy as np
-import builtins
+import pytest
+from fastapi.testclient import TestClient
 
 
 mock_model = Mock()
 mock_model.predict.return_value = np.array([1])
-
-
-def mock_verify_factory(scope):
-    async def _verify(credentials=None):
-        return "mock-token"
-
-    return _verify
-
-
-original_open = builtins.open
-
-
-def selective_mock_open(file, *args, **kwargs):
-    if "model.pkl" in str(file):
-        mock_file = Mock()
-        mock_file.__enter__ = Mock(return_value=mock_file)
-        mock_file.__exit__ = Mock(return_value=False)
-        return mock_file
-    return original_open(file, *args, **kwargs)
+mock_model.feature_names_in_ = np.array(["Pclass", "SibSp", "Parch", "Sex_female", "Sex_male"])
 
 
 with (
-    patch("builtins.open", side_effect=selective_mock_open),
-    patch("pickle.load", return_value=mock_model),
-    patch("titanic.api.infer.verify_token", mock_verify_factory),
+    patch("joblib.load", return_value=mock_model),
+    patch.dict(os.environ, {"OAUTH2_DOMAIN": ""}, clear=False),
 ):
-    from titanic.api.infer import Pclass, Sex, Passenger
+    from titanic.api.infer import app, Pclass, Sex, Passenger
     from titanic.api.main import main
     from titanic.api import infer
 
 
+@pytest.fixture
+def client():
+    return TestClient(app)
+
+
 def test_api_main_is_runnable():
-    """Test que main peut être appelé (sans vraiment démarrer le serveur)."""
     with patch("uvicorn.run") as mock_run:
         main()
-
         mock_run.assert_called_once()
         call_args = mock_run.call_args
         assert call_args[1]["host"] == "0.0.0.0"
@@ -48,15 +35,12 @@ def test_api_main_is_runnable():
 
 
 def test_api_infer_module_is_importable():
-    """Test que le module infer peut être importé sans erreur."""
-
     assert hasattr(infer, "app")
     assert hasattr(infer, "infer")
     assert hasattr(infer, "health")
 
 
 def test_api_has_required_enums():
-    """Test que les enums Pclass et Sex sont bien définis."""
     assert hasattr(Pclass, "UPPER")
     assert hasattr(Pclass, "MIDDLE")
     assert hasattr(Pclass, "LOW")
@@ -70,13 +54,16 @@ def test_api_has_required_enums():
 
 
 def test_api_passenger_dataclass():
-    """Test que la dataclass Passenger fonctionne correctement."""
-
     passenger = Passenger(pclass=Pclass.UPPER, sex=Sex.FEMALE, sibSp=1, parch=2)
-
     passenger_dict = passenger.to_dict()
 
     assert passenger_dict["Pclass"] == 1
     assert passenger_dict["Sex"] == "female"
     assert passenger_dict["SibSp"] == 1
     assert passenger_dict["Parch"] == 2
+
+
+def test_health_endpoint(client):
+    response = client.get("/health")
+    assert response.status_code == 200
+    assert response.json() == {"status": "OK"}

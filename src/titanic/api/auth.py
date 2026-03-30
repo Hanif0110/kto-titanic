@@ -1,19 +1,20 @@
 import os
 from collections.abc import Callable
+
 from fastapi import HTTPException, Security, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 import jwt
 from jwt import PyJWKClient
-from jwt.exceptions import ExpiredSignatureError, InvalidTokenError, InvalidAudienceError
+from jwt.exceptions import ExpiredSignatureError, InvalidAudienceError, InvalidTokenError
 
 
 security = HTTPBearer()
 
 
-def verify_token(required_scope: str) -> Callable:  # noqa: C901
+def verify_token(required_scope: str) -> Callable:
     """Create a token validator with a specific required scope using Auth0 JWKS."""
 
-    async def _verify(credentials: HTTPAuthorizationCredentials = Security(security)) -> str:  # noqa: C901, B008
+    async def _verify(credentials: HTTPAuthorizationCredentials = Security(security)) -> str:
         """Validate JWT token with expiration, audience and scope verification using Auth0 JWKS."""
         token = credentials.credentials
 
@@ -50,6 +51,8 @@ def verify_token(required_scope: str) -> Callable:  # noqa: C901
 
             return token
 
+        except HTTPException:
+            raise
         except ExpiredSignatureError as e:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -59,13 +62,19 @@ def verify_token(required_scope: str) -> Callable:  # noqa: C901
         except InvalidAudienceError as e:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid token audience",
+                detail=f"Invalid token audience: {e!s}",
                 headers={"WWW-Authenticate": "Bearer"},
             ) from e
         except InvalidTokenError as e:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail=f"Invalid token: {e!s}",
+                headers={"WWW-Authenticate": "Bearer"},
+            ) from e
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail=f"Unexpected auth error: {e!s}",
                 headers={"WWW-Authenticate": "Bearer"},
             ) from e
 
