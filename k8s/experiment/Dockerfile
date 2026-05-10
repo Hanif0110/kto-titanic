@@ -19,5 +19,3 @@ COPY pyproject.toml uv.lock README.md .python-version ./
 COPY ./src ./src
 
 RUN uv sync -n --group training
-
-ENTRYPOINT ["uv", "-n", "run", "--no-sync"]
