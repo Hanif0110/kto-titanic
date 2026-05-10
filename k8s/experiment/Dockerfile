@@ -19,4 +19,12 @@ COPY pyproject.toml uv.lock README.md .python-version ./
 COPY ./src ./src
 
 RUN uv sync -n --all-groups
-RUN uv pip install fire
+
+RUN pip install --no-cache-dir \
+    fire \
+    pandas==2.3.3 \
+    scikit-learn==1.8.0 \
+    joblib \
+    boto3 \
+    ydata-profiling==4.18.0 \
+    "mlflow[extras]==3.8.1"
