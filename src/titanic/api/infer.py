@@ -8,23 +8,30 @@ import pickle
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
+from typing import Any
 
 import joblib
 import pandas as pd
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, HTTPException, status
 
 from titanic.api.auth import verify_token
 
 
-JAEGER_ENDPOINT = os.getenv("JAEGER_ENDPOINT", "http://jaeger.hanif0110-dev.svc.cluster.local:4318/v1/traces")
+JAEGER_ENDPOINT = os.getenv(
+    "JAEGER_ENDPOINT",
+    "http://jaeger.hanif0110-dev.svc.cluster.local:4318/v1/traces",
+)
+
 MODEL_PATH = os.getenv("MODEL_PATH")
 MODEL_RESOURCE_DIR = Path("./src/titanic/api/resources")
 
 app = FastAPI()
 
+model: Any | None = None
+
 
 def find_model_path() -> Path:
-    """Find the model downloaded from MLflow or use the default path for tests."""
+    """Trouve le modèle téléchargé depuis MLflow."""
     if MODEL_PATH:
         return Path(MODEL_PATH)
 
@@ -40,9 +47,12 @@ def find_model_path() -> Path:
     return MODEL_RESOURCE_DIR / "model.pkl"
 
 
-def load_model():
-    """Load either a MLflow sklearn model.pkl or a joblib model."""
+def load_model() -> Any:
+    """Charge le modèle depuis les ressources locales."""
     model_path = find_model_path()
+
+    if not model_path.exists():
+        raise FileNotFoundError(f"Model file not found: {model_path}")
 
     if model_path.suffix == ".joblib":
         return joblib.load(model_path)
@@ -51,7 +61,26 @@ def load_model():
         return pickle.load(model_file)
 
 
-model = load_model()
+def get_model() -> Any:
+    """
+    Charge le modèle seulement au moment de l'inférence.
+
+    Cela évite de faire échouer les tests unitaires GitHub Actions,
+    car le fichier model.pkl n'existe pas encore au début de la pipeline.
+    """
+    global model
+
+    if model is not None:
+        return model
+
+    try:
+        model = load_model()
+        return model
+    except FileNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Model not available yet: {exc}",
+        ) from exc
 
 
 class Pclass(Enum):
@@ -88,6 +117,8 @@ def health() -> dict:
 
 @app.post("/infer")
 def infer(passenger: Passenger, token: str = Depends(verify_token("api:read"))) -> list:
+    loaded_model = get_model()
+
     df_passenger = pd.DataFrame([passenger.to_dict()])
 
     df_passenger["Sex"] = pd.Categorical(
@@ -97,10 +128,10 @@ def infer(passenger: Passenger, token: str = Depends(verify_token("api:read"))) 
 
     df_to_predict = pd.get_dummies(df_passenger)
 
-    if hasattr(model, "feature_names_in_"):
-        expected_columns = list(model.feature_names_in_)
+    if hasattr(loaded_model, "feature_names_in_"):
+        expected_columns = list(loaded_model.feature_names_in_)
         df_to_predict = df_to_predict.reindex(columns=expected_columns, fill_value=0)
 
-    res = model.predict(df_to_predict)
+    res = loaded_model.predict(df_to_predict)
 
     return res.tolist()
