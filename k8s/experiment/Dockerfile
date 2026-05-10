@@ -18,4 +18,5 @@ RUN pip install --no-cache-dir uv
 COPY pyproject.toml uv.lock README.md .python-version ./
 COPY ./src ./src
 
-RUN uv sync -n --group training
+RUN uv sync -n --all-groups
+RUN uv pip install fire
