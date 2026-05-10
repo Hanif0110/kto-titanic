@@ -93,11 +93,47 @@ jobs:
           export AWS_ACCESS_KEY_ID="${{ vars.AWS_ACCESS_KEY_ID }}"
           export AWS_SECRET_ACCESS_KEY="${{ secrets.AWS_SECRET_ACCESS_KEY }}"
 
+          echo "Starting Kubernetes pod log watcher..."
+
+          (
+            for i in {1..90}; do
+              echo ""
+              echo "===== Kubernetes debug iteration $i ====="
+              kubectl get jobs,pods -o wide || true
+
+              for pod in $(kubectl get pods -o name | grep kto-titanic || true); do
+                echo ""
+                echo "----- Logs for $pod -----"
+                kubectl logs "$pod" --all-containers --tail=120 || true
+              done
+
+              sleep 5
+            done
+          ) &
+          WATCHER_PID=$!
+
+          set +e
+
           uv run mlflow run ./src/titanic/training \
             -P path=all_titanic.csv \
             --experiment-name ${{ env.EXPERIMENT_NAME }} \
             --backend kubernetes \
             --backend-config ./k8s/experiment/kubernetes_config.json
+
+          STATUS=$?
+
+          kill $WATCHER_PID || true
+          wait $WATCHER_PID 2>/dev/null || true
+
+          echo ""
+          echo "===== Final Kubernetes state ====="
+          kubectl get jobs,pods -o wide || true
+
+          echo ""
+          echo "===== Recent Kubernetes events ====="
+          kubectl get events --sort-by=.lastTimestamp | tail -n 80 || true
+
+          exit $STATUS
 
       - name: Download model artifact
         run: |
@@ -163,6 +199,6 @@ jobs:
           echo "Integration test passed with OAuth2"
 
       - name: Asleep kto-mlflow with dailyclean
-        if: always()
+        if: success()
         run: |
           curl -X POST "$DAILYCLEAN_ROUTE_URL/pods/stop" || true
