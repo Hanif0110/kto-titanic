@@ -1,12 +1,13 @@
 """
-Ce script permet d'inférer le model de machine learning et de le mettre à disposition
-dans un Webservice. Il pourra donc être utilisé par notre chatbot par exemple,
-ou directement par un front. Remplir ce script une fois l'entrainement du model fonctionne
+Ce script permet d'inférer le modèle de machine learning et de le mettre à disposition
+sous forme de Webservice FastAPI.
 """
 
 import os
+import pickle
 from dataclasses import dataclass
 from enum import Enum
+from pathlib import Path
 
 import joblib
 import pandas as pd
@@ -16,10 +17,41 @@ from titanic.api.auth import verify_token
 
 
 JAEGER_ENDPOINT = os.getenv("JAEGER_ENDPOINT", "http://jaeger.hanif0110-dev.svc.cluster.local:4318/v1/traces")
+MODEL_PATH = os.getenv("MODEL_PATH")
+MODEL_RESOURCE_DIR = Path("./src/titanic/api/resources")
 
 app = FastAPI()
 
-model = joblib.load("./src/titanic/api/resources/model.pkl")
+
+def find_model_path() -> Path:
+    """Find the model downloaded from MLflow or use the default path for tests."""
+    if MODEL_PATH:
+        return Path(MODEL_PATH)
+
+    candidates = [
+        *MODEL_RESOURCE_DIR.rglob("model.pkl"),
+        *MODEL_RESOURCE_DIR.rglob("*.joblib"),
+        *MODEL_RESOURCE_DIR.rglob("*.pkl"),
+    ]
+
+    if candidates:
+        return candidates[0]
+
+    return MODEL_RESOURCE_DIR / "model.pkl"
+
+
+def load_model():
+    """Load either a MLflow sklearn model.pkl or a joblib model."""
+    model_path = find_model_path()
+
+    if model_path.suffix == ".joblib":
+        return joblib.load(model_path)
+
+    with open(model_path, "rb") as model_file:
+        return pickle.load(model_file)
+
+
+model = load_model()
 
 
 class Pclass(Enum):

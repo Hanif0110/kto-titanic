@@ -9,6 +9,7 @@ dependencies = [
     # TODO : Ajouter les dépendances transverses manquantes
     "pandas==2.3.3",
     "scikit-learn==1.8.0",
+    "joblib>=1.5.0",
     "setuptools>=82.0.0",
     "wheel>=0.46.3",
 ]
